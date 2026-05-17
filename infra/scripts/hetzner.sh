@@ -101,6 +101,17 @@ else
   echo "Skipping runner secrets (GITHUB_TOKEN or GITHUB_REPO_URL not set in .env)"
 fi
 
+if [ -n "$GITHUB_TOKEN" ] && [ -n "$PERSONAL_STACK_REPO_URL" ]; then
+  kubectl create secret generic personal-stack-runner-secrets \
+    --namespace=runners \
+    --from-literal=GITHUB_TOKEN="$GITHUB_TOKEN" \
+    --from-literal=GITHUB_REPO_URL="$PERSONAL_STACK_REPO_URL" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  echo "Personal-stack runner secrets created."
+else
+  echo "Skipping personal-stack runner secrets (PERSONAL_STACK_REPO_URL not set in .env)"
+fi
+
 echo "[4.7/6] Configuring Podbox Postgres..."
 kubectl create namespace podbox-services --dry-run=client -o yaml | kubectl apply -f -
 

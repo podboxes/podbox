@@ -71,3 +71,69 @@ spec:
           limits:
             cpu: "2"
             memory: 2Gi
+---
+# Runner for personal-stack — includes Docker-in-Docker for image builds
+# K3s uses containerd, not Docker, so DinD is required for docker build/push
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner-personal-stack
+  namespace: runners
+  labels:
+    app: github-runner-personal-stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-runner-personal-stack
+  template:
+    metadata:
+      labels:
+        app: github-runner-personal-stack
+    spec:
+      serviceAccountName: github-runner
+      containers:
+      - name: runner
+        image: myoung34/github-runner:ubuntu-jammy
+        env:
+        - name: ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: personal-stack-runner-secrets
+              key: GITHUB_TOKEN
+        - name: REPO_URL
+          valueFrom:
+            secretKeyRef:
+              name: personal-stack-runner-secrets
+              key: GITHUB_REPO_URL
+        - name: RUNNER_NAME_PREFIX
+          value: "personal-stack-k8s"
+        - name: LABELS
+          value: "self-hosted,linux,k8s"
+        - name: EPHEMERAL
+          value: "false"
+        # Point Docker CLI at the DinD sidecar
+        - name: DOCKER_HOST
+          value: tcp://localhost:2375
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: "4"
+            memory: 4Gi
+      # Docker-in-Docker sidecar — required for docker build/push on K3s (containerd)
+      - name: dind
+        image: docker:24-dind
+        securityContext:
+          privileged: true
+        env:
+        - name: DOCKER_TLS_CERTDIR
+          value: ""  # Disable TLS so runner can connect without certs
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi
