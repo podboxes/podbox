@@ -28,12 +28,16 @@ MAPPINGS=(
   ".env:glitchtip-secrets:observability"
 )
 
-# Keys to pull per secret (keeps secrets minimal — no cross-contamination)
-declare -A SECRET_KEYS
-SECRET_KEYS["runner-secrets"]="GITHUB_TOKEN GITHUB_REPO_URL"
-SECRET_KEYS["podbox-postgres-secrets"]="PODBOX_POSTGRES_USER PODBOX_POSTGRES_PASSWORD"
-SECRET_KEYS["umami-secrets"]="UMAMI_DATABASE_URL UMAMI_APP_SECRET"
-SECRET_KEYS["glitchtip-secrets"]="GLITCHTIP_DATABASE_URL GLITCHTIP_SECRET_KEY GLITCHTIP_FROM_EMAIL GLITCHTIP_EMAIL_URL"
+# Keys to pull per secret — bash 3.2 compatible (no associative arrays)
+get_keys_for_secret() {
+  case "$1" in
+    runner-secrets)         echo "GITHUB_TOKEN GITHUB_REPO_URL" ;;
+    podbox-postgres-secrets) echo "PODBOX_POSTGRES_USER PODBOX_POSTGRES_PASSWORD" ;;
+    umami-secrets)          echo "UMAMI_DATABASE_URL UMAMI_APP_SECRET" ;;
+    glitchtip-secrets)      echo "GLITCHTIP_DATABASE_URL GLITCHTIP_SECRET_KEY GLITCHTIP_FROM_EMAIL GLITCHTIP_EMAIL_URL" ;;
+    *) echo "" ;;
+  esac
+}
 
 # -------------------------------------------------------
 run_cmd() {
@@ -59,7 +63,8 @@ sync_secret() {
   local env_file="$2"
   local namespace="$3"
   local full_env_path="$ROOT_DIR/$env_file"
-  local keys="${SECRET_KEYS[$secret_name]}"
+  local keys
+  keys=$(get_keys_for_secret "$secret_name")
 
   echo "  Syncing → $namespace/$secret_name..."
 
