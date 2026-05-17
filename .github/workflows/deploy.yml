@@ -1,0 +1,46 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'infra/manifests/**'
+      - 'infra/scripts/**'
+      - 'k8s/**'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  deploy:
+    # Runs on the self-hosted runner pod inside the K3s cluster.
+    # The runner's service account has cluster-admin, so kubectl works
+    # automatically via in-cluster config — no KUBE_CONFIG secret needed.
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+          kubectl version --client
+
+      - name: Apply k8s service manifests
+        run: kubectl apply -f k8s/services/ --recursive
+
+      - name: Apply k8s runner manifests
+        run: kubectl apply -f k8s/runner/
+
+      - name: Apply infra manifests
+        run: kubectl apply -f infra/manifests/
+
+      - name: Verify core deployments
+        run: |
+          kubectl rollout status deployment/headlamp -n headlamp --timeout=120s
+          kubectl rollout status deployment/portainer -n portainer --timeout=120s
+          kubectl rollout status deployment/prometheus -n headlamp --timeout=120s
+          kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded 2>/dev/null || true

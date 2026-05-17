@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: podbox-services
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: podbox-postgres
+  namespace: podbox-services
+  labels:
+    app: podbox-postgres
+spec:
+  serviceName: podbox-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: podbox-postgres
+  template:
+    metadata:
+      labels:
+        app: podbox-postgres
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: podbox-postgres-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: podbox-postgres-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          value: postgres
+        livenessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - "-c"
+            - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+          subPath: pgdata
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "hcloud-volumes"
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podbox-postgres
+  namespace: podbox-services
+spec:
+  selector:
+    app: podbox-postgres
+  ports:
+  - port: 5432
+    targetPort: 5432

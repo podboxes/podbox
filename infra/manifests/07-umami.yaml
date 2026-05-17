@@ -1,0 +1,85 @@
+# Observability namespace is shared by Umami and GlitchTip.
+# It is declared once here and referenced by 08-glitchtip.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: umami
+  namespace: observability
+  labels:
+    app: umami
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: umami
+  template:
+    metadata:
+      labels:
+        app: umami
+    spec:
+      containers:
+      - name: umami
+        image: ghcr.io/umami-software/umami:postgresql-latest
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: umami-secrets
+              key: DATABASE_URL
+        - name: APP_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: umami-secrets
+              key: APP_SECRET
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: umami
+  namespace: observability
+spec:
+  selector:
+    app: umami
+  ports:
+  - port: 80
+    targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: umami-ingress
+  namespace: observability
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    cert-manager.io/cluster-issuer: "letsencrypt-prod-dns"
+spec:
+  tls:
+  - hosts:
+    - analytics.podbox.io
+    secretName: umami-tls
+  rules:
+  - host: analytics.podbox.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: umami
+            port:
+              number: 80

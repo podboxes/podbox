@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod-dns-jesseweed
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@podbox.io
+    privateKeySecretRef:
+      name: letsencrypt-prod-dns-jesseweed-account-key
+    solvers:
+    - dns01:
+        cloudflare:
+          email: admin@podbox.io
+          apiTokenSecretRef:
+            name: cloudflare-api-token-secret-jesseweed
+            key: api-token

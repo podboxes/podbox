@@ -1,0 +1,192 @@
+# Note: The observability namespace is declared in 07-umami.yaml
+# GlitchTip requires Redis for background event processing (Celery)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glitchtip
+  namespace: observability
+  labels:
+    app: glitchtip
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: glitchtip
+  template:
+    metadata:
+      labels:
+        app: glitchtip
+    spec:
+      containers:
+      - name: glitchtip
+        image: glitchtip/glitchtip:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: glitchtip-secrets
+              key: DATABASE_URL
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: glitchtip-secrets
+              key: SECRET_KEY
+        - name: DEFAULT_FROM_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: glitchtip-secrets
+              key: DEFAULT_FROM_EMAIL
+        - name: EMAIL_URL
+          valueFrom:
+            secretKeyRef:
+              name: glitchtip-secrets
+              key: EMAIL_URL
+        - name: GLITCHTIP_DOMAIN
+          value: "https://errors.podbox.io"
+        - name: REDIS_URL
+          value: "redis://glitchtip-redis:6379"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+---
+# GlitchTip requires a lightweight Redis instance for job queuing
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glitchtip-redis
+  namespace: observability
+  labels:
+    app: glitchtip-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: glitchtip-redis
+  template:
+    metadata:
+      labels:
+        app: glitchtip-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+# GlitchTip worker (processes background jobs like event ingestion)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glitchtip-worker
+  namespace: observability
+  labels:
+    app: glitchtip-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: glitchtip-worker
+  template:
+    metadata:
+      labels:
+        app: glitchtip-worker
+    spec:
+      containers:
+      - name: worker
+        image: glitchtip/glitchtip:latest
+        command: ["./bin/run-celery-with-beat.sh"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: glitchtip-secrets
+              key: DATABASE_URL
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: glitchtip-secrets
+              key: SECRET_KEY
+        - name: DEFAULT_FROM_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: glitchtip-secrets
+              key: DEFAULT_FROM_EMAIL
+        - name: EMAIL_URL
+          valueFrom:
+            secretKeyRef:
+              name: glitchtip-secrets
+              key: EMAIL_URL
+        - name: GLITCHTIP_DOMAIN
+          value: "https://errors.podbox.io"
+        - name: REDIS_URL
+          value: "redis://glitchtip-redis:6379"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: glitchtip
+  namespace: observability
+spec:
+  selector:
+    app: glitchtip
+  ports:
+  - port: 80
+    targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: glitchtip-redis
+  namespace: observability
+spec:
+  selector:
+    app: glitchtip-redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: glitchtip-ingress
+  namespace: observability
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    cert-manager.io/cluster-issuer: "letsencrypt-prod-dns"
+spec:
+  tls:
+  - hosts:
+    - errors.podbox.io
+    secretName: glitchtip-tls
+  rules:
+  - host: errors.podbox.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: glitchtip
+            port:
+              number: 80

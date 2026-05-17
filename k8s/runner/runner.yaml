@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: runners
+---
+# Service account the runner pod uses to call kubectl inside the cluster
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-runner
+  namespace: runners
+---
+# Grant the runner full cluster-admin so it can apply any manifest
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: github-runner-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: github-runner
+  namespace: runners
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner
+  namespace: runners
+  labels:
+    app: github-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-runner
+  template:
+    metadata:
+      labels:
+        app: github-runner
+    spec:
+      serviceAccountName: github-runner
+      containers:
+      - name: runner
+        # ubuntu-jammy gives us a full Ubuntu env with apt — easy to install kubectl in CI steps
+        image: myoung34/github-runner:ubuntu-jammy
+        env:
+        - name: ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: runner-secrets
+              key: GITHUB_TOKEN
+        - name: REPO_URL
+          valueFrom:
+            secretKeyRef:
+              name: runner-secrets
+              key: GITHUB_REPO_URL
+        - name: RUNNER_NAME_PREFIX
+          value: "podbox-k8s"
+        - name: LABELS
+          value: "self-hosted,linux,k8s"
+        # Keep the runner alive between jobs (not ephemeral)
+        - name: EPHEMERAL
+          value: "false"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi

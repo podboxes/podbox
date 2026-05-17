@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-prod
+  namespace: __NAMESPACE__
+  labels:
+    app: __APP_NAME__-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: __APP_NAME__-prod
+  template:
+    metadata:
+      labels:
+        app: __APP_NAME__-prod
+    spec:
+      imagePullSecrets:
+      - name: ghcr-login-secret
+      containers:
+      - name: web
+        image: ghcr.io/__GITHUB_USER__/__APP_NAME__:main
+        imagePullPolicy: Always
+        env:
+        - name: NODE_ENV
+          value: "production"
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-prod
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: __APP_NAME__-prod
+  ports:
+  - port: 80
+    targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web-prod-ingress
+  namespace: __NAMESPACE__
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    cert-manager.io/cluster-issuer: "letsencrypt-prod-dns-jesseweed"
+spec:
+  tls:
+  - hosts:
+    - __DOMAIN__
+    secretName: __APP_NAME__-prod-tls
+  rules:
+  - host: __DOMAIN__
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-prod
+            port:
+              number: 80
