@@ -50,20 +50,17 @@ spec:
         - name: ACCESS_TOKEN
           valueFrom:
             secretKeyRef:
-              name: runner-secrets
+              name: podbox-runner-secrets
               key: GITHUB_TOKEN
         - name: REPO_URL
           valueFrom:
             secretKeyRef:
-              name: runner-secrets
+              name: podbox-runner-secrets
               key: GITHUB_REPO_URL
         - name: RUNNER_NAME_PREFIX
           value: "podbox-k8s"
         - name: LABELS
           value: "self-hosted,linux,k8s"
-        # Keep the runner alive between jobs (not ephemeral)
-        - name: EPHEMERAL
-          value: "false"
         resources:
           requests:
             cpu: 200m

@@ -91,7 +91,7 @@ echo "[4.6/6] Configuring GitHub Actions Self-Hosted Runner..."
 kubectl create namespace runners --dry-run=client -o yaml | kubectl apply -f -
 
 if [ -n "$GITHUB_TOKEN" ] && [ -n "$GITHUB_REPO_URL" ]; then
-  kubectl create secret generic runner-secrets \
+  kubectl create secret generic podbox-runner-secrets \
     --namespace=runners \
     --from-literal=GITHUB_TOKEN="$GITHUB_TOKEN" \
     --from-literal=GITHUB_REPO_URL="$GITHUB_REPO_URL" \
@@ -146,7 +146,7 @@ if [ -n "$GLITCHTIP_DATABASE_URL" ] && [ -n "$GLITCHTIP_SECRET_KEY" ]; then
     --from-literal=DATABASE_URL="$GLITCHTIP_DATABASE_URL" \
     --from-literal=SECRET_KEY="$GLITCHTIP_SECRET_KEY" \
     --from-literal=DEFAULT_FROM_EMAIL="${GLITCHTIP_FROM_EMAIL:-noreply@podbox.io}" \
-    --from-literal=EMAIL_URL="${GLITCHTIP_EMAIL_URL:-console://}" \
+    --from-literal=EMAIL_URL="${GLITCHTIP_EMAIL_URL:-consolemail://}" \
     --dry-run=client -o yaml | kubectl apply -f -
   echo "GlitchTip secrets created."
 else
@@ -163,6 +163,31 @@ for dir in "./k8s/services" "./k8s/runner" "./infra/manifests"; do
     echo "  Warning: $dir not found. Skipping."
   fi
 done
+
+if [ -n "$GLITCHTIP_EMAIL" ] && [ -n "$GLITCHTIP_PASSWORD" ]; then
+  echo "[5.5/6] Automating GlitchTip Admin Superuser creation..."
+  # Wait up to 60s for the deployment to become ready
+  kubectl rollout status deployment/glitchtip -n observability --timeout=60s || true
+  
+  # Fetch the active running pod name
+  GLITCHTIP_POD=$(kubectl get pods -n observability -l app=glitchtip -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  
+  if [ -n "$GLITCHTIP_POD" ]; then
+    # Strip any leading/trailing single or double quotes from the variables
+    CLEAN_EMAIL=$(echo "$GLITCHTIP_EMAIL" | sed -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//')
+    CLEAN_PASSWORD=$(echo "$GLITCHTIP_PASSWORD" | sed -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//')
+    
+    # Query Django ORM to check if the superuser already exists
+    if kubectl exec "$GLITCHTIP_POD" -n observability -c glitchtip -- ./manage.py shell -c "from django.contrib.auth import get_user_model; print(get_user_model().objects.filter(email='$CLEAN_EMAIL').exists())" 2>/dev/null | grep -q "True"; then
+      echo "  👤 Admin account already initialized ($CLEAN_EMAIL)."
+    else
+      echo "  Initializing admin user: $CLEAN_EMAIL..."
+      kubectl exec "$GLITCHTIP_POD" -n observability -c glitchtip -- env DJANGO_SUPERUSER_PASSWORD="$CLEAN_PASSWORD" env DJANGO_SUPERUSER_EMAIL="$CLEAN_EMAIL" ./manage.py createsuperuser --noinput
+    fi
+  else
+    echo "  ⚠️ GlitchTip pod not ready. Skipping superuser automation."
+  fi
+fi
 
 echo "[6/6] Bootstrap Complete!"
 echo "You can monitor the status with: kubectl get pods -A"
