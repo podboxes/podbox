@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: podbox-postgres-init
+  namespace: podbox-services
+  labels:
+    app: podbox-postgres-init
+spec:
+  template:
+    metadata:
+      labels:
+        app: podbox-postgres-init
+    spec:
+      containers:
+      - name: init-db
+        image: postgres:16-alpine
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: podbox-postgres-secrets
+              key: POSTGRES_PASSWORD
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: podbox-postgres-secrets
+              key: POSTGRES_USER
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Checking and creating databases..."
+          psql -h podbox-postgres -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'umami_db'" | grep -q 1 || psql -h podbox-postgres -d postgres -c "CREATE DATABASE umami_db;"
+          psql -h podbox-postgres -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'glitchtip_db'" | grep -q 1 || psql -h podbox-postgres -d postgres -c "CREATE DATABASE glitchtip_db;"
+          echo "Databases initialized successfully."
+      restartPolicy: OnFailure
+  backoffLimit: 4

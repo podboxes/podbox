@@ -22,7 +22,7 @@ done
 # Mapping: "env_file:secret-name:namespace"
 # -------------------------------------------------------
 MAPPINGS=(
-  ".env:runner-secrets:runners"
+  ".env:podbox-runner-secrets:runners"
   ".env:podbox-postgres-secrets:podbox-services"
   ".env:umami-secrets:observability"
   ".env:glitchtip-secrets:observability"
@@ -31,7 +31,7 @@ MAPPINGS=(
 # Keys to pull per secret — bash 3.2 compatible (no associative arrays)
 get_keys_for_secret() {
   case "$1" in
-    runner-secrets)         echo "GITHUB_TOKEN GITHUB_REPO_URL" ;;
+    podbox-runner-secrets)  echo "GITHUB_TOKEN GITHUB_REPO_URL" ;;
     podbox-postgres-secrets) echo "PODBOX_POSTGRES_USER PODBOX_POSTGRES_PASSWORD" ;;
     umami-secrets)          echo "UMAMI_DATABASE_URL UMAMI_APP_SECRET" ;;
     glitchtip-secrets)      echo "GLITCHTIP_DATABASE_URL GLITCHTIP_SECRET_KEY GLITCHTIP_FROM_EMAIL GLITCHTIP_EMAIL_URL" ;;
@@ -82,9 +82,23 @@ sync_secret() {
     local value
     value=$(grep "^${key}=" "$full_env_path" | cut -d'=' -f2-)
     if [ -n "$value" ]; then
-      from_literals+=" --from-literal=${key}=${value}"
+      local target_key="$key"
+      case "$key" in
+        UMAMI_DATABASE_URL)      target_key="DATABASE_URL" ;;
+        UMAMI_APP_SECRET)         target_key="APP_SECRET" ;;
+        GLITCHTIP_DATABASE_URL)  target_key="DATABASE_URL" ;;
+        GLITCHTIP_SECRET_KEY)    target_key="SECRET_KEY" ;;
+        GLITCHTIP_FROM_EMAIL)    target_key="DEFAULT_FROM_EMAIL" ;;
+        GLITCHTIP_EMAIL_URL)      target_key="EMAIL_URL" ;;
+      esac
+      from_literals+=" --from-literal=${target_key}=${value}"
     else
-      echo "  ⚠️  Key $key is empty in $env_file — skipping this key"
+      # If GLITCHTIP_EMAIL_URL is empty/missing, default it to consolemail:// so glitchtip does not crash
+      if [ "$key" == "GLITCHTIP_EMAIL_URL" ]; then
+        from_literals+=" --from-literal=EMAIL_URL=consolemail://"
+      else
+        echo "  ⚠️  Key $key is empty in $env_file — skipping this key"
+      fi
     fi
   done
 
